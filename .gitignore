@@ -1,0 +1,30 @@
+# Virtual environment
+tsgen/
+venv/
+Scripts/
+bin/
+Lib/
+Include/
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Python cache and compiled files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# logs and temporary files
+logs/
+*.log
+*.tmp
+
+# IDE/project files
+.vscode/
+.idea/
+*.iml
+
+# Ignore output files
+outputs/
