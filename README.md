@@ -1,9 +1,9 @@
 # Document Generator
 
-This project reads data from a `.txt` file and replaces placeholders in a `.docx` template using configurations from `.json` files.
+This project reads data from a `.xlsx` or `.csv` file and replaces placeholders in a `.docx` template using configurations from `.json` files.
 
 ## ⚡ Features
-- Reads tab-separated data from `data.txt`
+- Reads data from `inputPath` path set in config.
 - Uses `config/*.json` to map placeholders
 - Replaces placeholders in a `.docx` template
 - Saves the modified document with updated values
