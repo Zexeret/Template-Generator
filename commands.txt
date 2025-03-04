@@ -8,6 +8,9 @@ tsgen\Scripts\activate
 # to start environment
 deactivate
 
+# INstall package
+pip install openxyml
+
 # Create requirements.txt
 pip freeze > requirements.txt
 

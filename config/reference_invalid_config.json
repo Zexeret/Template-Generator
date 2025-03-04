@@ -1,7 +1,8 @@
 {
     "productName" : "Invalid FCN",
     "templatePath" : "products/Demo Product/template.docx",
-    "outputPath" : "products/Demo Product/outputs/output.docx",
+    "outputPath" : "products/Demo Product/outputs/invalid_output.docx",
+    "inputPath" : "products/Demo Product/invalid_input.xlsx",
     "expectedCount" : 87,
     "mappings": {
         "Name": "[[NAME]]",

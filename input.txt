@@ -1,2 +1,0 @@
-Name	Age                                	Phone             	BBG 3.0	Counter	KO (12sx)	cAught12
-John 	12	12121212	45.2	23.1	121b	YES

@@ -1,6 +1,8 @@
 import os
 import docx
 import json
+import openpyxl
+import csv
 import argparse
 
 def list_config_files(config_dir="config"):
@@ -38,7 +40,7 @@ def get_user_selected_config(config_info, config_dir="config"):
         choice = input("\nEnter the number of the configuration to use (or 'q' to quit): ")
         if choice.lower() == 'q':
             print("\n🛑 Exiting selection...")
-            return None  # Return None if user exits
+            return None
         try:
             choice = int(choice)
             if 1 <= choice <= len(config_info):
@@ -49,21 +51,50 @@ def get_user_selected_config(config_info, config_dir="config"):
             print("❌ Invalid input. Please enter a number.")
 
 
-
 def read_data(file_path):
-    """ Reads tab-separated input data from a file and converts it to a dictionary. """
+    """ Reads input data from a CSV or XLSX file and converts it to a dictionary. """
     if not os.path.exists(file_path):
         return {}, [f"❌ Data file '{file_path}' not found."]
+    
+    file_ext = os.path.splitext(file_path)[1].lower()
+    
+    if file_ext == ".csv":
+        return read_csv(file_path)
+    elif file_ext in [".xls", ".xlsx"]:
+        return read_xlsx(file_path)
+    else:
+        return {}, ["❌ Unsupported file format. Please use CSV or XLSX."]
 
-    with open(file_path, 'r', encoding='utf-8') as file:
-        lines = file.readlines()
+def read_csv(file_path):
+    """ Reads a CSV file and extracts data from the first two non-empty rows. """
+    with open(file_path, newline='', encoding='utf-8') as file:
+        reader = csv.reader(file)
+        rows = [row for row in reader if any(cell.strip() for cell in row)]  # Remove empty rows
+        
+        if len(rows) < 2:
+            return {}, ["❌ CSV file must contain at least two non-empty rows."]
+        
+        headers = [h.strip() for h in rows[0]]
+        values = [v.strip() for v in rows[1]]
+        
+        return dict(zip(headers, values)), []
 
-    if len(lines) < 2:
-        return {}, [f"❌ Data file '{file_path}' is missing required rows."]
-
-    headers = [h.strip() for h in lines[0].split('\t')]
-    values = [v.strip() for v in lines[1].split('\t')]
-
+def read_xlsx(file_path):
+    """ Reads an XLSX file and extracts data from the first two non-empty rows. """
+    wb = openpyxl.load_workbook(file_path, data_only=True)
+    sheet = wb.active
+    
+    rows = []
+    for row in sheet.iter_rows(values_only=True):
+        if any(cell for cell in row if cell is not None and str(cell).strip()):  # Remove empty rows
+            rows.append([str(cell).strip() if cell is not None else "" for cell in row])
+    
+    if len(rows) < 2:
+        return {}, ["❌ XLSX file must contain at least two non-empty rows."]
+    
+    headers = rows[0]
+    values = rows[1]
+    
     return dict(zip(headers, values)), []
 
 def read_config(config_path):
@@ -74,9 +105,9 @@ def read_config(config_path):
     with open(config_path, 'r', encoding='utf-8') as file:
         config = json.load(file)
 
-    required_keys = ["templatePath", "outputPath", "mappings"]
+    required_keys = ["templatePath", "outputPath", "inputPath", "mappings"]
     missing_keys = [key for key in required_keys if key not in config]
-
+    
     if missing_keys:
         return {}, [f"❌ Config file is missing required keys: {', '.join(missing_keys)}"]
 
@@ -211,7 +242,6 @@ def main():
     
     args = parser.parse_args()
 
-    data_file = 'input.txt'
     config_dir = "config"
     config_info = list_config_files(config_dir)
 
@@ -224,9 +254,19 @@ def main():
         if not config_file:
             return  # Exit if the user chooses to quit
 
-
-        data, data_errors = read_data(data_file)
         config, config_errors = read_config(config_file)
+
+        if config_errors:
+            for error in config_errors:
+                print(error)
+            return
+
+        input_path = config.get("inputPath")
+        if not input_path or not os.path.exists(input_path):
+            print(f"❌ Invalid inputPath: {input_path}")
+            return
+        
+        data, data_errors = read_data(input_path)
 
         error_messages = data_errors + config_errors
 
@@ -237,14 +277,16 @@ def main():
             print("\n📌 **Errors Encountered:** ")
             for error in error_messages:
                 print(error)
-        
-        if not args.loop:
+
+        choice = input("\nPress ENTER to continue... (or 'q' to quit): ")
+        if choice.lower() == 'q':
+            print("\n🛑 Exiting...\n")
             return
 
-        choice = input("\nPress ENTER to continue... (or 'q' to quit) ")
-        if choice.lower() == 'q':
-            print("\n🛑 Exiting selection...")
+        if not args.loop:
             return
+        
+
 
 if __name__ == "__main__":
     main()
