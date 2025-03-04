@@ -34,11 +34,11 @@ def list_config_files(config_dir="config"):
 def get_user_selected_config(config_info, config_dir="config"):
     """ Prompts the user to select a config file from available options. """
     while True:
-        print("\n📌 Available Configurations:")
+        print("\n📌 Available Products:")
         for idx, (file, product_name) in enumerate(config_info, start=1):
             print(f"{idx}. {product_name} ({file})")
 
-        choice = input("\nEnter the number of the configuration to use (or 'q' to quit): ")
+        choice = input("\nEnter the number corresponding to the product to use (or 'q' to quit): ")
         if choice.lower() == 'q':
             print("\n🛑 Exiting selection...")
             return None

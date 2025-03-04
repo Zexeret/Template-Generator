@@ -24,3 +24,6 @@ python ts_scripts.py
 # Make sure to copy the exe file from dist folder to where your initial py script is.
 # Then only exe file, config, customUtil.py and product folder are needed to run
 pyinstaller --onefile test.py
+
+# EXE file with custom name
+pyinstaller --onefile ts_script.py --name "ts-generator"

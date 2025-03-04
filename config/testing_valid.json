@@ -1,5 +1,5 @@
 {
-    "productName": "Test Sample Valid",
+    "productName": "VALID Test Sample",
     "templatePath": "products/Demo Product/template.docx",
     "outputPath": "products/Demo Product/outputs/output.docx",
     "inputPath": "products/Demo Product/input.xlsx",

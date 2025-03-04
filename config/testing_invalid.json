@@ -1,5 +1,5 @@
 {
-    "productName": "Test Sample Valid",
+    "productName": "INVALID Test Sample",
     "templatePath": "products/Demo Product/template.docx",
     "outputPath": "products/Demo Product/outputs/invalid_output.docx",
     "inputPath": "products/Demo Product/invalid_input.xlsx",
@@ -10,7 +10,7 @@
         "[[PHONE]]": { "inputField": "Phone" },
         "[[BBG_3_0]]": { "inputField": "BBG 3.0" },
         "[[Counter]]": { "inputField": "Counter" },
-        "[[KO_12SX]]": { "customOperation": "sumofPhone" },
+        "[[KO_12SX]]": { "customOperation": "sampleDemoFunction" },
         "[[CAUGHT_12]]": { "inputField": "cAught12" }
     }
 }
