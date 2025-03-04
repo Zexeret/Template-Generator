@@ -4,6 +4,8 @@ import json
 import openpyxl
 import csv
 import argparse
+import importlib.util
+from collections import defaultdict
 
 def list_config_files(config_dir="config"):
     """ Lists all available JSON config files and extracts product names. """
@@ -29,7 +31,6 @@ def list_config_files(config_dir="config"):
     
     return config_info
 
-
 def get_user_selected_config(config_info, config_dir="config"):
     """ Prompts the user to select a config file from available options. """
     while True:
@@ -49,7 +50,6 @@ def get_user_selected_config(config_info, config_dir="config"):
                 print("❌ Invalid selection. Please enter a valid number.")
         except ValueError:
             print("❌ Invalid input. Please enter a number.")
-
 
 def read_data(file_path):
     """ Reads input data from a CSV or XLSX file and converts it to a dictionary. """
@@ -114,7 +114,7 @@ def read_config(config_path):
     # Check for duplicate placeholders
     seen_placeholders = set()
     duplicates = []
-    for key, placeholder in config["mappings"].items():
+    for placeholder in config["mappings"]:
         if placeholder in seen_placeholders:
             duplicates.append(placeholder)
         seen_placeholders.add(placeholder)
@@ -135,45 +135,12 @@ def validate_docx_file(file_path):
     except Exception as e:
         return False, f"❌ Failed to read '{file_path}'. The file might be corrupted or not a valid .docx.\n{e}"
 
-def log_mappings(data, config, placeholder_counts, placeholder_line_counts, missing_placeholders, error_messages, verbose=False):
-    """ Logs the mappings and placeholder statistics for debugging. """
-    print("\n📌 **Placeholder Replacement Log:**")
-
-    max_col_len = max(len(col) for col in data.keys()) if data else 0
-    max_placeholder_len = max(len(config["mappings"].get(col, "")) for col in data.keys() if col in config["mappings"]) if data else 0
-    max_value_len = max(len(value) for value in data.values()) if data else 0
-    max_count_len = max(len(str(count)) for count in placeholder_counts.values()) if placeholder_counts else 0
-
-    col_width = max(max_col_len, len("INPUT"))
-    placeholder_width = max(max_placeholder_len, len("PLACEHOLDER"))
-    value_width = max(max_value_len, len("VALUE"))
-    count_width = max(max_count_len, len("COUNT"))
-
-    print(f"\n{'INPUT'.ljust(col_width)}      {'PLACEHOLDER'.ljust(placeholder_width)}      {'VALUE'.ljust(value_width)}      {'COUNT'.rjust(count_width)}")
-
-    for col, value in data.items():
-        if col in config["mappings"]:
-            placeholder = config["mappings"][col]
-            count = placeholder_counts.get(placeholder, 0)
-            print(f"{col.ljust(col_width)}  ->  {placeholder.ljust(placeholder_width)}  ->  {value.ljust(value_width)}  ->  {str(count).ljust(count_width)}")
-
-            if verbose and placeholder in placeholder_line_counts:
-                for line_num, line_count in placeholder_line_counts[placeholder].items():
-                    print(f"    ⮡  {line_count} Time{'s' if line_count > 1 else ''} at Line {line_num}")
-                print("")
-
-    # Collect missing placeholders in the error log
-    for placeholder in missing_placeholders:
-        error_messages.append(f"❌ ERROR: Placeholder {placeholder} not found in the document.")
-
-    total_changes = sum(placeholder_counts.values())
-    # Log expected count mismatch if the field exists
-    expected_count = config.get("expectedCount")
-    if expected_count is not None and total_changes != expected_count:
-        error_messages.append(f"❌ ERROR: Total placeholders replaced ({total_changes}) does not match expected count ({expected_count}).")
-
-    # Log placeholders
-    print(f"\n✅ Total placeholder values changed: {total_changes}.")
+def load_custom_util(custom_util_path):
+    """ Dynamically loads the customUtil module from a given path. """
+    spec = importlib.util.spec_from_file_location("customUtil", custom_util_path)
+    custom_util = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(custom_util)
+    return custom_util
 
 def replace_text_preserving_format(paragraph, replacements, placeholder_counts, placeholder_line_counts, line_num, missing_placeholders):
     """ Replaces placeholders in a paragraph while preserving formatting. """
@@ -186,9 +153,9 @@ def replace_text_preserving_format(paragraph, replacements, placeholder_counts, 
                 missing_placeholders.discard(key)
 
 def replace_placeholders(config, data, error_messages, verbose=False):
-    """ Replaces placeholders in a .docx template while preserving formatting and logging occurrences. """
     template_path = os.path.abspath(config["templatePath"])
     output_path = os.path.abspath(config["outputPath"])
+    custom_util_path = os.path.abspath("customUtil.py")  # Adjust this path as needed
 
     valid, error_message = validate_docx_file(template_path)
     if not valid:
@@ -203,13 +170,29 @@ def replace_placeholders(config, data, error_messages, verbose=False):
         error_messages.append(f"❌ Unable to open template file '{template_path}'.\n{e}")
         return
 
-    missing_columns = [key for key in config["mappings"] if key not in data]
-    for col in missing_columns:
-        error_messages.append(f"⚠️  Expected column '{col}' based on config but it was not found in the input data.")
+    # Load custom functions
+    custom_util = load_custom_util(custom_util_path)
 
-    replacements = {config["mappings"][key]: value for key, value in data.items() if key in config["mappings"]}
+    replacements = {}
+    for placeholder, mapping in config["mappings"].items():
+        if "inputField" in mapping:
+            input_field = mapping["inputField"]
+            if input_field in data:
+                replacements[placeholder] = data[input_field]
+            else:
+                error_messages.append(f"⚠️  Expected column '{input_field}' based on config but it was not found in the input data.")
+        elif "customOperation" in mapping:
+            custom_function_name = mapping["customOperation"]
+            try:
+                custom_function = getattr(custom_util, custom_function_name)
+                replacements[placeholder] = str(custom_function(data))
+            except AttributeError:
+                error_messages.append(f"❌ Custom function '{custom_function_name}' not found in customUtil.py.")
+            except Exception as e:
+                error_messages.append(f"❌ Error executing custom function '{custom_function_name}': {e}")
+
     placeholder_counts = {placeholder: 0 for placeholder in replacements}
-    placeholder_line_counts = {placeholder: {} for placeholder in replacements}
+    placeholder_line_counts = {placeholder: defaultdict(int) for placeholder in replacements}
     missing_placeholders = set(replacements.keys())
 
     # Replace in paragraphs
@@ -224,7 +207,7 @@ def replace_placeholders(config, data, error_messages, verbose=False):
                     replace_text_preserving_format(para, replacements, placeholder_counts, placeholder_line_counts, line_num, missing_placeholders)
 
     # Log mappings and save document
-    log_mappings(data, config, placeholder_counts, placeholder_line_counts, missing_placeholders, error_messages, verbose)
+    log_mappings(data, config, placeholder_counts, placeholder_line_counts, missing_placeholders, error_messages, verbose, replacements)
 
     try:
         doc.save(output_path)
@@ -232,13 +215,64 @@ def replace_placeholders(config, data, error_messages, verbose=False):
     except Exception as e:
         error_messages.append(f"❌ Failed to save document to '{output_path}'.\n{e}")
 
+def log_mappings(data, config, placeholder_counts, placeholder_line_counts, missing_placeholders, error_messages, verbose=False, replacements=None):
+    """ Logs the mappings and placeholder statistics for debugging. """
+    print("\n📌 **Placeholder Replacement Log:**")
+
+    # Calculate the maximum length for each column
+    max_input_len = max(
+        len(mapping.get("inputField", f"{mapping.get('customOperation', '')}"))
+        for mapping in config["mappings"].values()
+    )
+    max_placeholder_len = max(len(placeholder) for placeholder in config["mappings"]) if config["mappings"] else 0
+    max_value_len = max(len(str(value)) for value in replacements.values()) if replacements else 0
+    max_count_len = max(len(str(count)) for count in placeholder_counts.values()) if placeholder_counts else 0
+
+    # Set column widths
+    col_width = max(max_input_len, len("INPUT"))
+    placeholder_width = max(max_placeholder_len, len("PLACEHOLDER"))
+    value_width = max(max_value_len, len("VALUE"))
+    count_width = max(max_count_len, len("COUNT"))
+
+    # Print header
+    print(f"\n{'INPUT'.ljust(col_width)}      {'PLACEHOLDER'.ljust(placeholder_width)}      {'VALUE'.ljust(value_width)}      {'COUNT'.rjust(count_width)}")
+
+    # Print each mapping
+    for placeholder, mapping in config["mappings"].items():
+        if "inputField" in mapping:
+            input_field = mapping["inputField"]
+            value = data.get(input_field, "")
+        elif "customOperation" in mapping:
+            input_field = f"{mapping['customOperation']}"
+            value = replacements.get(placeholder, "")
+
+        count = placeholder_counts.get(placeholder, 0)
+        print(f"{input_field.ljust(col_width)}  ->  {placeholder.ljust(placeholder_width)}  ->  {str(value).ljust(value_width)}  ->  {str(count).ljust(count_width)}")
+
+        if verbose and placeholder in placeholder_line_counts:
+            for line_num, line_count in placeholder_line_counts[placeholder].items():
+                print(f"    ⮡  {line_count} Time{'s' if line_count > 1 else ''} at Line {line_num}")
+            print("")
+
+    # Collect missing placeholders in the error log
+    for placeholder in missing_placeholders:
+        error_messages.append(f"❌ ERROR: Placeholder {placeholder} not found in the document.")
+
+    total_changes = sum(placeholder_counts.values())
+    # Log expected count mismatch if the field exists
+    expected_count = config.get("expectedCount")
+    if expected_count is not None and total_changes != expected_count:
+        error_messages.append(f"❌ ERROR: Total placeholders replaced ({total_changes}) does not match expected count ({expected_count}).")
+
+    # Log placeholders
+    print(f"\n✅ Total placeholder values changed: {total_changes}.")
 
 def main():
     parser = argparse.ArgumentParser()
 
-    # Arguent Details
+    # Argument Details
     parser.add_argument("-v", "--verbose", action="store_true", help="Show detailed placeholder changes with line numbers and counts")
-    parser.add_argument("-lp","--loop", action="store_true", help="Keep running after completion, allowing re-selection")
+    # parser.add_argument("-lp","--loop", action="store_true", help="Keep running after completion, allowing re-selection")
     
     args = parser.parse_args()
 
@@ -282,11 +316,9 @@ def main():
         if choice.lower() == 'q':
             print("\n🛑 Exiting...\n")
             return
-
-        if not args.loop:
-            return
         
+        print("\n\n\n\n\n")
 
-
+        
 if __name__ == "__main__":
     main()

@@ -1,0 +1,16 @@
+{
+    "productName": "Test Sample Valid",
+    "templatePath": "products/Demo Product/template.docx",
+    "outputPath": "products/Demo Product/outputs/output.docx",
+    "inputPath": "products/Demo Product/input.xlsx",
+    "expectedCount": 87,
+    "mappings": {
+        "[[NAME]]": { "inputField": "Name" },
+        "[[AGE]]": { "inputField": "Age" },
+        "[[PHONE]]": { "inputField": "Phone" },
+        "[[BBG_3_0]]": { "inputField": "BBG 3.0" },
+        "[[Counter]]": { "inputField": "Counter" },
+        "[[KO_12SX]]": { "customOperation": "sumofBBG" },
+        "[[CAUGHT_12]]": { "inputField": "cAught12" }
+    }
+}

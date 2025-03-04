@@ -27,4 +27,6 @@ logs/
 *.iml
 
 # Ignore output files
-outputs/
+products/**/outputs/
+build/
+dist/
