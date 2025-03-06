@@ -51,7 +51,7 @@ def get_user_selected_config(config_info, config_dir="config"):
         except ValueError:
             print("❌ Invalid input. Please enter a number.")
 
-def read_data(file_path):
+def read_data(file_path,config):
     """ Reads input data from a CSV or XLSX file and converts it to a dictionary. """
     if not os.path.exists(file_path):
         return {}, [f"❌ Data file '{file_path}' not found."]
@@ -61,7 +61,7 @@ def read_data(file_path):
     if file_ext == ".csv":
         return read_csv(file_path)
     elif file_ext in [".xls", ".xlsx"]:
-        return read_xlsx(file_path)
+        return read_xlsx(file_path,config)
     else:
         return {}, ["❌ Unsupported file format. Please use CSV or XLSX."]
 
@@ -78,24 +78,43 @@ def read_csv(file_path):
         values = [v.strip() for v in rows[1]]
         
         return dict(zip(headers, values)), []
-
-def read_xlsx(file_path):
-    """ Reads an XLSX file and extracts data from the first two non-empty rows. """
+    
+def read_xlsx(file_path, config):
+    """ Reads only the sheets mentioned in the config file. """
     wb = openpyxl.load_workbook(file_path, data_only=True)
-    sheet = wb.active
+    data = {}
+    errors = []
+
+    # Identify required sheet numbers from config
+    required_sheets = set()
     
-    rows = []
-    for row in sheet.iter_rows(values_only=True):
-        if any(cell for cell in row if cell is not None and str(cell).strip()):  # Remove empty rows
-            rows.append([str(cell).strip() if cell is not None else "" for cell in row])
-    
-    if len(rows) < 2:
-        return {}, ["❌ XLSX file must contain at least two non-empty rows."]
-    
-    headers = rows[0]
-    values = rows[1]
-    
-    return dict(zip(headers, values)), []
+    for mapping in config.get("mappings", {}).values():
+        required_sheets.add(str(mapping.get("sheetNumber", 1)))  # Default to sheet 1 if not specified
+
+    sheet_map = {str(i + 1): sheet for i, sheet in enumerate(wb.sheetnames)}  # Map index to sheet names
+
+    for sheet_number in required_sheets:
+        if sheet_number not in sheet_map:
+            errors.append(f"❌ Sheet number {sheet_number} is missing in the input file.")
+            continue
+        
+        sheet_name = sheet_map[sheet_number]
+        ws = wb[sheet_name]
+        rows = []
+
+        for row in ws.iter_rows(values_only=True):
+            if any(cell for cell in row if cell is not None and str(cell).strip()):
+                rows.append([str(cell).strip() if cell is not None else "" for cell in row])
+
+        if len(rows) < 2:
+            errors.append(f"❌ Sheet '{sheet_name}' (#{sheet_number}) must contain at least two non-empty rows.")
+            continue
+
+        headers = rows[0]
+        values = rows[1]
+        data[sheet_number] = dict(zip(headers, values))
+
+    return data, errors
 
 def read_config(config_path):
     """ Reads the JSON config file containing template paths and mappings. """
@@ -175,17 +194,20 @@ def replace_placeholders(config, data, error_messages, verbose=False):
 
     replacements = {}
     for placeholder, mapping in config["mappings"].items():
+        sheet_number = str(mapping.get("sheetNumber", 1))  # Default to sheet 1 if missing
+        sheet_data = data.get(sheet_number, {})  # Get data for the specified sheet
+
         if "inputField" in mapping:
             input_field = mapping["inputField"]
-            if input_field in data:
-                replacements[placeholder] = data[input_field]
+            if input_field in sheet_data:
+                replacements[placeholder] = sheet_data[input_field]
             else:
                 error_messages.append(f"⚠️  Expected column '{input_field}' based on config but it was not found in the input data.")
         elif "customOperation" in mapping:
             custom_function_name = mapping["customOperation"]
             try:
                 custom_function = getattr(custom_util, custom_function_name)
-                replacements[placeholder] = str(custom_function(data))
+                replacements[placeholder] = str(custom_function(sheet_data))
             except AttributeError:
                 error_messages.append(f"❌ Custom function '{custom_function_name}' not found in customUtil.py.")
             except Exception as e:
@@ -235,19 +257,22 @@ def log_mappings(data, config, placeholder_counts, placeholder_line_counts, miss
     count_width = max(max_count_len, len("COUNT"))
 
     # Print header
-    print(f"\n{'INPUT'.ljust(col_width)}      {'PLACEHOLDER'.ljust(placeholder_width)}      {'VALUE'.ljust(value_width)}      {'COUNT'.rjust(count_width)}")
+    print(f"\n{'INPUT'.ljust(col_width)}  {'PLACEHOLDER'.ljust(placeholder_width)}  {'VALUE'.ljust(value_width)}  {'COUNT'.rjust(count_width)}")
 
     # Print each mapping
     for placeholder, mapping in config["mappings"].items():
+        sheet_number = str(mapping.get("sheetNumber", 1))  # Default to sheet 1
+        sheet_data = data.get(sheet_number, {})  # Get data for the specified sheet
+
         if "inputField" in mapping:
             input_field = mapping["inputField"]
-            value = data.get(input_field, "")
+            value = sheet_data.get(input_field, "⚠️ MISSING")
         elif "customOperation" in mapping:
             input_field = f"{mapping['customOperation']}"
-            value = replacements.get(placeholder, "")
+            value = replacements.get(placeholder, "⚠️ ERROR")
 
         count = placeholder_counts.get(placeholder, 0)
-        print(f"{input_field.ljust(col_width)}  ->  {placeholder.ljust(placeholder_width)}  ->  {str(value).ljust(value_width)}  ->  {str(count).ljust(count_width)}")
+        print(f"{input_field.ljust(col_width)}  {placeholder.ljust(placeholder_width)}  {str(value).ljust(value_width)}  {str(count).rjust(count_width)}")
 
         if verbose and placeholder in placeholder_line_counts:
             for line_num, line_count in placeholder_line_counts[placeholder].items():
@@ -300,7 +325,10 @@ def main():
             print(f"❌ Invalid inputPath: {input_path}")
             return
         
-        data, data_errors = read_data(input_path)
+        data, data_errors = read_data(input_path,config)
+
+        # print(data)
+        # return
 
         error_messages = data_errors + config_errors
 

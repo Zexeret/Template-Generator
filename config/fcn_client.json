@@ -19,6 +19,31 @@
         },
         "[[KI/KOPer]]": {
             "inputField": "KI Barrier (%)"
+        },
+        "[[Trade Date]]": {
+            "sheetNumber" : 2,
+            "inputField": "Trade Date"
+        },
+        "[[Initial Valuation Date]]": {
+            "sheetNumber" : 2,
+            "inputField": "Initial Valuation Date"
+        },
+        "[[Notional]]": {
+            "sheetNumber" : 2,
+            "inputField": "Notional"
+        },
+        "[[Issue Date]]": {
+            "sheetNumber" : 2,
+            "inputField": "Issue Date"
+        },
+        "[[Final Valuation Date]]": {
+            "sheetNumber" : 2,
+            "inputField": "Final Valuation Date"
+        },
+        "[[Maturity Date]]": {
+            "sheetNumber" : 2,
+            "inputField": "Maturity"
         }
+        
     }
 }
