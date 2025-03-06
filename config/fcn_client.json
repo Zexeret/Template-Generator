@@ -1,0 +1,24 @@
+{
+    "productName": "FCN",
+    "templatePath": "products/FCN Try/template.docx",
+    "outputPath": "products/FCN Try/outputs/output.docx",
+    "inputPath": "products/FCN Try/input.xlsx",
+    "expectedCount": 87,
+    "mappings": {
+        "[[Month Count]]": {
+            "inputField": "Tenor (m)"
+        },
+        "[[CCY]]": {
+            "inputField": "Currency"
+        },
+        "[[Coupon]]": {
+            "inputField": "Coupon p.a. (%)"
+        },
+        "[[StrikePercent]]": {
+            "inputField": "Strike (%)"
+        },
+        "[[KI/KOPer]]": {
+            "inputField": "KI Barrier (%)"
+        }
+    }
+}
