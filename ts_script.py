@@ -1,13 +1,18 @@
 import os
 import docx
+import sys
 import json
 import openpyxl
-import csv
 import argparse
 import importlib.util
 from collections import defaultdict
 from docx.oxml import parse_xml
 from docx.oxml.ns import nsdecls
+
+
+CONFIG_DIR = ""
+CUSTOM_UTIL_PATH = ""
+PRODUCTS_BASE_DIR =""
 
 def list_config_files(config_dir="config"):
     """ Lists all available JSON config files and extracts product names. """
@@ -132,6 +137,10 @@ def read_config(config_path):
 
     if duplicates:
         return {}, [f"❌ Config contains duplicate placeholders: {', '.join(duplicates)}"]
+    
+    config["templatePath"] = os.path.join(PRODUCTS_BASE_DIR, config["templatePath"].split("/", 1)[-1])
+    config["outputPath"] = os.path.join(PRODUCTS_BASE_DIR, config["outputPath"].split("/", 1)[-1])
+    config["inputPath"] = os.path.join(PRODUCTS_BASE_DIR, config["inputPath"].split("/", 1)[-1])
 
     return config, []
 
@@ -211,10 +220,9 @@ def replace_text_preserving_format(paragraph, replacements, placeholder_counts, 
                 placeholder_counts[placeholder] += 1
                 missing_placeholders.discard(placeholder)
 
-def replace_placeholders(config, data, error_messages):
+def replace_placeholders(config, data, error_messages, customUtilsPath):
     template_path = os.path.abspath(config["templatePath"])
     output_path = os.path.abspath(config["outputPath"])
-    custom_util_path = os.path.abspath("customUtil.py")  # Adjust this path as needed
 
     valid, error_message = validate_docx_file(template_path)
     if not valid:
@@ -230,7 +238,7 @@ def replace_placeholders(config, data, error_messages):
         return
 
     # Load custom functions
-    custom_util = load_custom_util(custom_util_path)
+    custom_util = load_custom_util(customUtilsPath)
     replacements = {}
     for placeholder, mapping in config["mappings"].items():
         sheet_number = str(mapping.get("sheetNumber", 1))  # Default to sheet 1 if missing
@@ -364,6 +372,36 @@ def log_mappings( config, placeholder_counts,  missing_placeholders, error_messa
         print(f"✅ Tables created {table_placeholder_count}.")
 
 
+def updateGlobalPath():
+    # Determine if running as a PyInstaller bundle
+    if getattr(sys, 'frozen', False):  # Running as an executable
+        BASE_DIR = os.path.dirname(sys.executable)  # Correct path for external files
+        base_path = sys._MEIPASS # base path for internal files
+        sys.path.append(base_path)
+    else:  # Running as a script
+        BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+        base_path = os.path.dirname(os.path.abspath(__file__))
+
+    global CONFIG_DIR
+    global CUSTOM_UTIL_PATH
+    global PRODUCTS_BASE_DIR
+
+    CONFIG_DIR = os.path.join(base_path, "config")
+    CUSTOM_UTIL_PATH = os.path.join(base_path,"customUtil.py")
+
+    # Ensure 'products/' is read from the actual runtime location (not inside the .exe)
+    PRODUCTS_BASE_DIR = os.path.join(BASE_DIR, "products")  # products/ is expected at runtime
+
+
+def shouldExit(forceExit = False):
+    choice = input("\nPress ENTER to continue... (or 'q' to quit): ")
+    if choice.lower() == 'q':
+        print("\n🛑 Exiting...\n")
+        return True
+    
+    return False | forceExit
+
+
 def main():
     parser = argparse.ArgumentParser()
 
@@ -371,17 +409,18 @@ def main():
     # parser.add_argument("-v", "--verbose", action="store_true", help="Show detailed placeholder changes with line numbers and counts")
     # parser.add_argument("-lp","--loop", action="store_true", help="Keep running after completion, allowing re-selection")
     
-    args = parser.parse_args()
+    # Update path for internal and external bundled files
+    updateGlobalPath()
 
-    config_dir = "config"
-    config_info = list_config_files(config_dir)
+    config_info = list_config_files(CONFIG_DIR)
 
     if not config_info:
         print("❌ No valid config files found. Exiting.")
-        return
+        if shouldExit():
+            return
 
     while True:
-        config_file = get_user_selected_config(config_info, config_dir)
+        config_file = get_user_selected_config(config_info, CONFIG_DIR)
         if not config_file:
             return  # Exit if the user chooses to quit
 
@@ -390,32 +429,35 @@ def main():
         if config_errors:
             for error in config_errors:
                 print(error)
-            return
+            if shouldExit(True):
+                return
 
         input_path = config.get("inputPath")
         if not input_path or not os.path.exists(input_path):
             print(f"❌ Invalid inputPath: {input_path}")
-            return
+            if shouldExit(True):
+                return
         
         data, data_errors = read_data(input_path,config)
 
         error_messages = data_errors + config_errors
 
-        if data and config:
-            replace_placeholders(config, data, error_messages)
+        try:
+            if data and config:
+                replace_placeholders(config, data, error_messages, CUSTOM_UTIL_PATH)
+        except Exception as e:
+            print(f"Got internal error {e} {e.__traceback__}")
+
 
         if error_messages:
             print("\n📌 **Errors Encountered:** ")
             for error in error_messages:
                 print(error)
 
-        choice = input("\nPress ENTER to continue... (or 'q' to quit): ")
-        if choice.lower() == 'q':
-            print("\n🛑 Exiting...\n")
+        if shouldExit():
             return
         
         print("\n\n\n\n\n")
-
-        
+    
 if __name__ == "__main__":
     main()

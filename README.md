@@ -39,6 +39,15 @@ $ tsgen\Scripts\activate
 $ python ts_script.py
 ```
 
+### 🔹 **Build Executable File**
+Make sure you have your virtual environment activated, if not you should run the first command else skip it.
+It copies the content of your current product folder.
+
+```sh
+$ tsgen\Scripts\activate
+$ python build.py
+```
+
 For details about various arguments:
 > python ts_script.py --help
 

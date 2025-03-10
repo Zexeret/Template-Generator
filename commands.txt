@@ -27,3 +27,6 @@ pyinstaller --onefile test.py
 
 # EXE file with custom name
 pyinstaller --onefile ts_script.py --name "ts-generator"
+
+# EXE generate command
+pyinstaller --onefile --add-data "config;config" --add-data "customUtil.py;." --name "ts-generator" ts_script.py
