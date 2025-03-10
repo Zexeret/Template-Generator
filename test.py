@@ -29,7 +29,9 @@ def list_config_files(config_dir="config"):
             with open(file_path, 'r', encoding='utf-8') as f:
                 config_data = json.load(f)
                 product_name = config_data.get("productName", "Unknown Product")
-                config_info.append((file, product_name))
+                shouldIgnore = config_data.get("shouldIgnore", False)
+                if not shouldIgnore:
+                    config_info.append((file, product_name))
         except Exception as e:
             print(f"⚠️  Skipping '{file}': Unable to read or invalid JSON format. ({e})")
 
@@ -43,7 +45,14 @@ def get_user_selected_config(config_info, config_dir="config"):
     while True:
         print("\n📌 Available Configurations:")
         for idx, (file, product_name) in enumerate(config_info, start=1):
-            print(f"{idx}. {product_name} ({file})")
+            file_path = os.path.join(config_dir, file)
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    config_data = json.load(f)
+                    localInputPath = config_data.get("inputPath", "Unknown Product")
+            except Exception as e:
+                print(f"⚠️  Skipping '{file}': Unable to read or invalid JSON format. ({e})")
+            print(f"{idx}. {product_name} ({localInputPath})")
 
         choice = input("\nEnter the number of the configuration to use (or 'q' to quit): ")
         if choice.lower() == 'q':

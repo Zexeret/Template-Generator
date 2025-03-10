@@ -1,8 +1,8 @@
 {
     "productName": "FCN",
-    "templatePath": "products/FCN Try/template.docx",
-    "outputPath": "products/FCN Try/outputs/output.docx",
-    "inputPath": "products/FCN Try/input.xlsx",
+    "templatePath": "products/FCN/template.docx",
+    "outputPath": "products/FCN/outputs/output.docx",
+    "inputPath": "products/FCN/input.xlsx",
     "expectedCount": 24,
     "mappings": {
         "[[Month Count]]": {

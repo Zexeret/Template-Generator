@@ -4,6 +4,7 @@
     "outputPath": "products/Demo Product/outputs/output.docx",
     "inputPath": "products/Demo Product/input.xlsx",
     "expectedCount": 87,
+    "shouldIgnore" : true,
     "mappings": {
         "[[NAME]]": { "inputField": "Name" },
         "[[AGE]]": { "inputField": "Age" },

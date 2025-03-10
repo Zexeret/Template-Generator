@@ -4,6 +4,7 @@
     "outputPath": "products/Demo Product/outputs/invalid_output.docx",
     "inputPath": "products/Demo Product/invalid_input.xlsx",
     "expectedCount": 87,
+    "shouldIgnore" : true,
     "mappings": {
         "[[NAME]]": { "inputField": "Name" },
         "[[AG0E]]": { "inputField": "Age" },

@@ -16,6 +16,11 @@ PRODUCTS_DIR = os.path.join(BASE_DIR, "products")
 DIST_DIR = os.path.join(BASE_DIR, "dist")
 EXE_NAME = "ts-generator.exe"
 
+# Clear TOOL directory if it exists
+if os.path.exists(BUILD_DIR):
+    shutil.rmtree(BUILD_DIR)
+
+
 # Create TS_Generator directory inside TOOL
 os.makedirs(TS_GEN_DIR, exist_ok=True)
 
