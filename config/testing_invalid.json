@@ -11,6 +11,7 @@
         "[[BBG_3_0]]": { "inputField": "BBG 3.0" },
         "[[Counter]]": { "inputField": "Counter" },
         "[[KO_12SX]]": { "customOperation": "sampleDemoFunction" },
+        "[[ShareBasket]]": { "customOperation": "populateShareBasketTable"},
         "[[CAUGHT_12]]": { "inputField": "cAught12" }
     }
 }

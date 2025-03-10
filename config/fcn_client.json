@@ -3,7 +3,7 @@
     "templatePath": "products/FCN Try/template.docx",
     "outputPath": "products/FCN Try/outputs/output.docx",
     "inputPath": "products/FCN Try/input.xlsx",
-    "expectedCount": 87,
+    "expectedCount": 24,
     "mappings": {
         "[[Month Count]]": {
             "inputField": "Tenor (m)"
@@ -43,7 +43,35 @@
         "[[Maturity Date]]": {
             "sheetNumber" : 2,
             "inputField": "Maturity"
+        },
+        "[[Denom]]": {
+            "sheetNumber": 2,
+            "inputField": "Denom"
+        },
+        "[[Count i]]": {
+            "customOperation": "numBBGValues",
+            "type": "string"
+        },
+        "[[ShareBasketTab]]": {
+            "customOperation": "getTableData",
+            "type": "table",
+            "sheetNumber": 4,
+            "params": {
+                "start_row": 1,
+                "end_row": 5,
+                "start_col": 1,
+                "end_col": 8
+            }
+        },
+        "[[ObservationDatesTab]]": {
+            "customOperation": "getTableData",
+            "type": "table",
+            "sheetNumber": 3,
+            "params": {
+                "start_row": 1,
+                "start_col": 1,
+                "end_col": 4
+            }
         }
-        
     }
 }

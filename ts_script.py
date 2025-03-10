@@ -6,6 +6,8 @@ import csv
 import argparse
 import importlib.util
 from collections import defaultdict
+from docx.oxml import parse_xml
+from docx.oxml.ns import nsdecls
 
 def list_config_files(config_dir="config"):
     """ Lists all available JSON config files and extracts product names. """
@@ -34,11 +36,11 @@ def list_config_files(config_dir="config"):
 def get_user_selected_config(config_info, config_dir="config"):
     """ Prompts the user to select a config file from available options. """
     while True:
-        print("\n📌 Available Products:")
+        print("\n📌 Available Configurations:")
         for idx, (file, product_name) in enumerate(config_info, start=1):
             print(f"{idx}. {product_name} ({file})")
 
-        choice = input("\nEnter the number corresponding to the product to use (or 'q' to quit): ")
+        choice = input("\nEnter the number of the configuration to use (or 'q' to quit): ")
         if choice.lower() == 'q':
             print("\n🛑 Exiting selection...")
             return None
@@ -51,51 +53,60 @@ def get_user_selected_config(config_info, config_dir="config"):
         except ValueError:
             print("❌ Invalid input. Please enter a number.")
 
-def read_data(file_path):
+def read_data(file_path,config):
     """ Reads input data from a CSV or XLSX file and converts it to a dictionary. """
     if not os.path.exists(file_path):
         return {}, [f"❌ Data file '{file_path}' not found."]
     
     file_ext = os.path.splitext(file_path)[1].lower()
     
-    if file_ext == ".csv":
-        return read_csv(file_path)
-    elif file_ext in [".xls", ".xlsx"]:
-        return read_xlsx(file_path)
+    if file_ext in [".xls", ".xlsx"]:
+        return read_xlsx(file_path,config)
     else:
-        return {}, ["❌ Unsupported file format. Please use CSV or XLSX."]
+        return {}, ["❌ Unsupported file format. Please use XLSX."]
 
-def read_csv(file_path):
-    """ Reads a CSV file and extracts data from the first two non-empty rows. """
-    with open(file_path, newline='', encoding='utf-8') as file:
-        reader = csv.reader(file)
-        rows = [row for row in reader if any(cell.strip() for cell in row)]  # Remove empty rows
-        
-        if len(rows) < 2:
-            return {}, ["❌ CSV file must contain at least two non-empty rows."]
-        
-        headers = [h.strip() for h in rows[0]]
-        values = [v.strip() for v in rows[1]]
-        
-        return dict(zip(headers, values)), []
-
-def read_xlsx(file_path):
-    """ Reads an XLSX file and extracts data from the first two non-empty rows. """
+    
+def read_xlsx(file_path, config):
+    """ Reads only the sheets mentioned in the config file. """
     wb = openpyxl.load_workbook(file_path, data_only=True)
-    sheet = wb.active
+    data = {}
+    errors = []
+
+    # Identify required sheet numbers from config
+    required_sheets = set()
     
-    rows = []
-    for row in sheet.iter_rows(values_only=True):
-        if any(cell for cell in row if cell is not None and str(cell).strip()):  # Remove empty rows
-            rows.append([str(cell).strip() if cell is not None else "" for cell in row])
-    
-    if len(rows) < 2:
-        return {}, ["❌ XLSX file must contain at least two non-empty rows."]
-    
-    headers = rows[0]
-    values = rows[1]
-    
-    return dict(zip(headers, values)), []
+    for mapping in config.get("mappings", {}).values():
+        required_sheets.add(str(mapping.get("sheetNumber", 1)))  # Default to sheet 1 if not specified
+
+    sheet_map = {str(i + 1): sheet for i, sheet in enumerate(wb.sheetnames)}  # Map index to sheet names
+
+    for sheet_number in required_sheets:
+        if sheet_number not in sheet_map:
+            errors.append(f"❌ Sheet number {sheet_number} is missing in the input file.")
+            continue
+        
+        sheet_name = sheet_map[sheet_number]
+        ws = wb[sheet_name]
+        rows = []
+
+        for row in ws.iter_rows(values_only=True):
+            if any(cell for cell in row if cell is not None and str(cell).strip()):
+                rows.append([str(cell).strip() if cell is not None else "" for cell in row])
+
+        if len(rows) < 2:
+            errors.append(f"❌ Sheet '{sheet_name}' (#{sheet_number}) must contain at least two non-empty rows.")
+            continue
+
+        headers = rows[0]
+        sheet_data = []
+        for row in rows[1:]:
+            row_dict = {}
+            for i, header in enumerate(headers):
+                row_dict[header] = row[i] if i < len(row) else ""
+            sheet_data.append(row_dict)
+        data[sheet_number] = sheet_data
+
+    return data, errors
 
 def read_config(config_path):
     """ Reads the JSON config file containing template paths and mappings. """
@@ -142,17 +153,65 @@ def load_custom_util(custom_util_path):
     spec.loader.exec_module(custom_util)
     return custom_util
 
-def replace_text_preserving_format(paragraph, replacements, placeholder_counts, placeholder_line_counts, line_num, missing_placeholders):
+def replace_text_preserving_format(paragraph, replacements, placeholder_counts, missing_placeholders, doc):
     """ Replaces placeholders in a paragraph while preserving formatting. """
-    for run in paragraph.runs:
-        for key, value in replacements.items():
-            if key in run.text:
-                run.text = run.text.replace(key, value)
-                placeholder_counts[key] += 1
-                placeholder_line_counts[key][line_num] = placeholder_line_counts[key].get(line_num, 0) + 1
-                missing_placeholders.discard(key)
+    for placeholder, replacement in replacements.items():
+        if replacement["type"] == "string":
+            for run in paragraph.runs:
+                if placeholder in run.text:
+                    run.text = run.text.replace(placeholder, replacement["value"])
+                    placeholder_counts[placeholder] += 1
+                    missing_placeholders.discard(placeholder)
+        elif replacement["type"] == "table":
+            if placeholder in paragraph.text:
+                parts = paragraph.text.split(placeholder)
+                if parts[0]:
+                    paragraph.text = parts[0]
+                else:
+                    paragraph.clear()
+                            
+                table_paragraph = paragraph.insert_paragraph_before()
+                data = replacement["value"]
+                if data:
+                    num_rows = len(data) + 1
+                    num_cols = len(data[0])
+                    table = doc.add_table(rows=num_rows, cols=num_cols)
+                        
+                    table_paragraph._element.addnext(table._element)
+                    tbl = table._element
+                    tblBorders = parse_xml(
+                        '<w:tblBorders %s>'
+                        '<w:top w:val="single" w:sz="4" w:space="0" w:color="000000"/>'
+                        '<w:left w:val="single" w:sz="4" w:space="0" w:color="000000"/>'
+                        '<w:bottom w:val="single" w:sz="4" w:space="0" w:color="000000"/>'
+                        '<w:right w:val="single" w:sz="4" w:space="0" w:color="000000"/>'
+                        '<w:insideH w:val="single" w:sz="4" w:space="0" w:color="000000"/>'
+                        '<w:insideV w:val="single" w:sz="4" w:space="0" w:color="000000"/>'
+                        '</w:tblBorders>' % nsdecls('w')
+                    )
+                    tbl.tblPr.append(tblBorders)
+                        
+                    headers = data[0].keys()
+                    for i, header in enumerate(headers):
+                        cell = table.cell(0, i)
+                        cell.text = header
+                        for run in cell.paragraphs[0].runs:
+                            run.bold = True
+                        
+                    for row_idx, entry in enumerate(data, start=1):
+                        for col_idx, (key, value) in enumerate(entry.items()):
+                            table.cell(row_idx, col_idx).text = str(value)
+                    
+                if parts[1]:
+                    paragraph.insert_paragraph_before(parts[1])
+            
+                p = paragraph._element
+                p.getparent().remove(p)
+                p._p = p._element = None
+                placeholder_counts[placeholder] += 1
+                missing_placeholders.discard(placeholder)
 
-def replace_placeholders(config, data, error_messages, verbose=False):
+def replace_placeholders(config, data, error_messages):
     template_path = os.path.abspath(config["templatePath"])
     output_path = os.path.abspath(config["outputPath"])
     custom_util_path = os.path.abspath("customUtil.py")  # Adjust this path as needed
@@ -172,42 +231,63 @@ def replace_placeholders(config, data, error_messages, verbose=False):
 
     # Load custom functions
     custom_util = load_custom_util(custom_util_path)
-
     replacements = {}
     for placeholder, mapping in config["mappings"].items():
+        sheet_number = str(mapping.get("sheetNumber", 1))  # Default to sheet 1 if missing
+        sheet_data = data.get(sheet_number, {})  # Get data for the specified sheet
+
         if "inputField" in mapping:
             input_field = mapping["inputField"]
-            if input_field in data:
-                replacements[placeholder] = data[input_field]
+            if sheet_data and input_field in sheet_data[0]:
+                replacements[placeholder] = {
+                    "type": "string",
+                    "value": sheet_data[0][input_field]
+                }
             else:
                 error_messages.append(f"⚠️  Expected column '{input_field}' based on config but it was not found in the input data.")
         elif "customOperation" in mapping:
             custom_function_name = mapping["customOperation"]
             try:
                 custom_function = getattr(custom_util, custom_function_name)
-                replacements[placeholder] = str(custom_function(data))
+                if (mapping.get("type") == "table"):
+                    params = mapping.get("params", {})
+                    table_data = custom_function(
+                        sheet_data, 
+                        start_row=params.get("start_row", 1), 
+                        end_row=params.get("end_row", None), 
+                        start_col=params.get("start_col", 1), 
+                        end_col=params.get("end_col", None)
+                    )
+                    replacements[placeholder] = {
+                        "type": "table",
+                        "value": table_data
+                    }
+                else:
+                    replacements[placeholder] = {
+                        "type": "string",
+                        "value": str(custom_function(sheet_data))
+                    }
             except AttributeError:
                 error_messages.append(f"❌ Custom function '{custom_function_name}' not found in customUtil.py.")
             except Exception as e:
                 error_messages.append(f"❌ Error executing custom function '{custom_function_name}': {e}")
 
     placeholder_counts = {placeholder: 0 for placeholder in replacements}
-    placeholder_line_counts = {placeholder: defaultdict(int) for placeholder in replacements}
     missing_placeholders = set(replacements.keys())
 
     # Replace in paragraphs
-    for line_num, para in enumerate(doc.paragraphs, start=1):
-        replace_text_preserving_format(para, replacements, placeholder_counts, placeholder_line_counts, line_num, missing_placeholders)
+    for  para in doc.paragraphs:
+        replace_text_preserving_format(para, replacements, placeholder_counts, missing_placeholders, doc)
 
     # Replace in tables
     for table in doc.tables:
         for row in table.rows:
             for cell in row.cells:
-                for line_num, para in enumerate(cell.paragraphs, start=1):
-                    replace_text_preserving_format(para, replacements, placeholder_counts, placeholder_line_counts, line_num, missing_placeholders)
+                for  para in cell.paragraphs:
+                    replace_text_preserving_format(para, replacements, placeholder_counts, missing_placeholders, doc)
 
     # Log mappings and save document
-    log_mappings(data, config, placeholder_counts, placeholder_line_counts, missing_placeholders, error_messages, verbose, replacements)
+    log_mappings( config, placeholder_counts,  missing_placeholders, error_messages,  replacements)
 
     try:
         doc.save(output_path)
@@ -215,9 +295,12 @@ def replace_placeholders(config, data, error_messages, verbose=False):
     except Exception as e:
         error_messages.append(f"❌ Failed to save document to '{output_path}'.\n{e}")
 
-def log_mappings(data, config, placeholder_counts, placeholder_line_counts, missing_placeholders, error_messages, verbose=False, replacements=None):
+def log_mappings( config, placeholder_counts,  missing_placeholders, error_messages, replacements=None):
     """ Logs the mappings and placeholder statistics for debugging. """
+
     print("\n📌 **Placeholder Replacement Log:**")
+
+    table_placeholder_count = 0
 
     # Calculate the maximum length for each column
     max_input_len = max(
@@ -225,7 +308,12 @@ def log_mappings(data, config, placeholder_counts, placeholder_line_counts, miss
         for mapping in config["mappings"].values()
     )
     max_placeholder_len = max(len(placeholder) for placeholder in config["mappings"]) if config["mappings"] else 0
-    max_value_len = max(len(str(value)) for value in replacements.values()) if replacements else 0
+    max_value_len = max(
+        len(str(replacements[placeholder]["value"])) 
+        for placeholder in replacements 
+        if replacements[placeholder]["type"] == "string"
+        ) if replacements else 0
+    
     max_count_len = max(len(str(count)) for count in placeholder_counts.values()) if placeholder_counts else 0
 
     # Set column widths
@@ -235,24 +323,30 @@ def log_mappings(data, config, placeholder_counts, placeholder_line_counts, miss
     count_width = max(max_count_len, len("COUNT"))
 
     # Print header
-    print(f"\n{'INPUT'.ljust(col_width)}      {'PLACEHOLDER'.ljust(placeholder_width)}      {'VALUE'.ljust(value_width)}      {'COUNT'.rjust(count_width)}")
+    print(f"\n{'INPUT'.ljust(col_width)}  {'PLACEHOLDER'.ljust(placeholder_width)}  {'VALUE'.ljust(value_width)}  {'COUNT'.rjust(count_width)}")
 
     # Print each mapping
     for placeholder, mapping in config["mappings"].items():
+
+        replacementDefaultValue = {"type": "string", "value": ""}
+
+        if placeholder in replacements:
+            replacementDefaultValue = replacements[placeholder]
+
+        if replacementDefaultValue["type"] == "table":
+            table_placeholder_count += placeholder_counts[placeholder]
+            continue
+
         if "inputField" in mapping:
             input_field = mapping["inputField"]
-            value = data.get(input_field, "")
         elif "customOperation" in mapping:
             input_field = f"{mapping['customOperation']}"
-            value = replacements.get(placeholder, "")
+
+        value = replacementDefaultValue.get("value", "ERROR")
 
         count = placeholder_counts.get(placeholder, 0)
-        print(f"{input_field.ljust(col_width)}  ->  {placeholder.ljust(placeholder_width)}  ->  {str(value).ljust(value_width)}  ->  {str(count).ljust(count_width)}")
+        print(f"{input_field.ljust(col_width)}  {placeholder.ljust(placeholder_width)}  {str(value).ljust(value_width)}  {str(count).rjust(count_width)}")
 
-        if verbose and placeholder in placeholder_line_counts:
-            for line_num, line_count in placeholder_line_counts[placeholder].items():
-                print(f"    ⮡  {line_count} Time{'s' if line_count > 1 else ''} at Line {line_num}")
-            print("")
 
     # Collect missing placeholders in the error log
     for placeholder in missing_placeholders:
@@ -266,12 +360,15 @@ def log_mappings(data, config, placeholder_counts, placeholder_line_counts, miss
 
     # Log placeholders
     print(f"\n✅ Total placeholder values changed: {total_changes}.")
+    if table_placeholder_count > 0:
+        print(f"✅ Tables created {table_placeholder_count}.")
+
 
 def main():
     parser = argparse.ArgumentParser()
 
     # Argument Details
-    parser.add_argument("-v", "--verbose", action="store_true", help="Show detailed placeholder changes with line numbers and counts")
+    # parser.add_argument("-v", "--verbose", action="store_true", help="Show detailed placeholder changes with line numbers and counts")
     # parser.add_argument("-lp","--loop", action="store_true", help="Keep running after completion, allowing re-selection")
     
     args = parser.parse_args()
@@ -300,12 +397,12 @@ def main():
             print(f"❌ Invalid inputPath: {input_path}")
             return
         
-        data, data_errors = read_data(input_path)
+        data, data_errors = read_data(input_path,config)
 
         error_messages = data_errors + config_errors
 
         if data and config:
-            replace_placeholders(config, data, error_messages, args.verbose)
+            replace_placeholders(config, data, error_messages)
 
         if error_messages:
             print("\n📌 **Errors Encountered:** ")
