@@ -5,7 +5,7 @@ import json
 import openpyxl
 import argparse
 import importlib.util
-from collections import defaultdict
+from datetime import datetime
 from docx.oxml import parse_xml
 from docx.oxml.ns import nsdecls
 
@@ -79,20 +79,25 @@ def read_data(file_path,config):
     else:
         return {}, ["❌ Unsupported file format. Please use XLSX."]
 
+def format_cell_value(cell,number_format):
+    if isinstance(cell, datetime):
+        return cell.strftime("%d %B %Y")  # Matches "10 October 2024"
     
+    if isinstance(cell, (int, float)) and "%" in number_format:
+        return f"{cell * 100:.0f}%"  # Convert 0.98 → 98%
+    return str(cell).strip() if cell is not None else ""
+
 def read_xlsx(file_path, config):
-    """ Reads only the sheets mentioned in the config file. """
+    """Reads only the sheets mentioned in the config file while preserving formats."""
     wb = openpyxl.load_workbook(file_path, data_only=True)
     data = {}
     errors = []
 
-    # Identify required sheet numbers from config
     required_sheets = set()
-    
     for mapping in config.get("mappings", {}).values():
-        required_sheets.add(str(mapping.get("sheetNumber", 1)))  # Default to sheet 1 if not specified
+        required_sheets.add(str(mapping.get("sheetNumber", 1)))
 
-    sheet_map = {str(i + 1): sheet for i, sheet in enumerate(wb.sheetnames)}  # Map index to sheet names
+    sheet_map = {str(i + 1): sheet for i, sheet in enumerate(wb.sheetnames)}
 
     for sheet_number in required_sheets:
         if sheet_number not in sheet_map:
@@ -103,9 +108,15 @@ def read_xlsx(file_path, config):
         ws = wb[sheet_name]
         rows = []
 
-        for row in ws.iter_rows(values_only=True):
-            if any(cell for cell in row if cell is not None and str(cell).strip()):
-                rows.append([str(cell).strip() if cell is not None else "" for cell in row])
+        for row in ws.iter_rows():
+            formatted_row = []
+            for cell in row:
+                value = cell.value
+                number_format = cell.number_format  # Get cell format
+                formatted_row.append(format_cell_value(value, number_format))
+            
+            if any(formatted_row):  # Ignore empty rows
+                rows.append(formatted_row)
 
         if len(rows) < 2:
             errors.append(f"❌ Sheet '{sheet_name}' (#{sheet_number}) must contain at least two non-empty rows.")
@@ -114,9 +125,7 @@ def read_xlsx(file_path, config):
         headers = rows[0]
         sheet_data = []
         for row in rows[1:]:
-            row_dict = {}
-            for i, header in enumerate(headers):
-                row_dict[header] = row[i] if i < len(row) else ""
+            row_dict = {headers[i]: row[i] if i < len(row) else "" for i in range(len(headers))}
             sheet_data.append(row_dict)
         data[sheet_number] = sheet_data
 
