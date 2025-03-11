@@ -1,18 +1,14 @@
 import os
 import docx
-import sys
 import json
 import openpyxl
 import argparse
-import importlib.util
+from util import customUtil,formatters
 from datetime import datetime
 from docx.oxml import parse_xml
 from docx.oxml.ns import nsdecls
 
-
-CONFIG_DIR = ""
-CUSTOM_UTIL_PATH = ""
-PRODUCTS_BASE_DIR =""
+CONFIG_DIR = os.path.join("config")
 
 def list_config_files(config_dir="config"):
     """ Lists all available JSON config files and extracts product names. """
@@ -85,6 +81,9 @@ def format_cell_value(cell,number_format):
     
     if isinstance(cell, (int, float)) and "%" in number_format:
         return f"{cell * 100:.0f}%"  # Convert 0.98 → 98%
+    
+    if isinstance(cell, (int, float)) and "," in number_format:  # Checks if formatting includes commas
+        return  f"{cell:,}" 
     return str(cell).strip() if cell is not None else ""
 
 def read_xlsx(file_path, config):
@@ -155,10 +154,6 @@ def read_config(config_path):
 
     if duplicates:
         return {}, [f"❌ Config contains duplicate placeholders: {', '.join(duplicates)}"]
-    
-    config["templatePath"] = os.path.join(PRODUCTS_BASE_DIR, config["templatePath"].split("/", 1)[-1])
-    config["outputPath"] = os.path.join(PRODUCTS_BASE_DIR, config["outputPath"].split("/", 1)[-1])
-    config["inputPath"] = os.path.join(PRODUCTS_BASE_DIR, config["inputPath"].split("/", 1)[-1])
 
     return config, []
 
@@ -172,13 +167,6 @@ def validate_docx_file(file_path):
         return True, ""
     except Exception as e:
         return False, f"❌ Failed to read '{file_path}'. The file might be corrupted or not a valid .docx.\n{e}"
-
-def load_custom_util(custom_util_path):
-    """ Dynamically loads the customUtil module from a given path. """
-    spec = importlib.util.spec_from_file_location("customUtil", custom_util_path)
-    custom_util = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(custom_util)
-    return custom_util
 
 def replace_text_preserving_format(paragraph, replacements, placeholder_counts, missing_placeholders, doc):
     """ Replaces placeholders in a paragraph while preserving formatting. """
@@ -238,7 +226,7 @@ def replace_text_preserving_format(paragraph, replacements, placeholder_counts, 
                 placeholder_counts[placeholder] += 1
                 missing_placeholders.discard(placeholder)
 
-def replace_placeholders(config, data, error_messages, customUtilsPath):
+def replace_placeholders(config, data, error_messages):
     template_path = os.path.abspath(config["templatePath"])
     output_path = os.path.abspath(config["outputPath"])
 
@@ -256,7 +244,6 @@ def replace_placeholders(config, data, error_messages, customUtilsPath):
         return
 
     # Load custom functions
-    custom_util = load_custom_util(customUtilsPath)
     replacements = {}
     for placeholder, mapping in config["mappings"].items():
         sheet_number = str(mapping.get("sheetNumber", 1))  # Default to sheet 1 if missing
@@ -274,7 +261,7 @@ def replace_placeholders(config, data, error_messages, customUtilsPath):
         elif "customOperation" in mapping:
             custom_function_name = mapping["customOperation"]
             try:
-                custom_function = getattr(custom_util, custom_function_name)
+                custom_function = getattr(customUtil, custom_function_name)
                 if (mapping.get("type") == "table"):
                     params = mapping.get("params", {})
                     table_data = custom_function(
@@ -297,6 +284,21 @@ def replace_placeholders(config, data, error_messages, customUtilsPath):
                 error_messages.append(f"❌ Custom function '{custom_function_name}' not found in customUtil.py.")
             except Exception as e:
                 error_messages.append(f"❌ Error executing custom function '{custom_function_name}': {e}")
+
+        # Apply custom formatting if ayn after default formatting
+        if "formatter" in mapping:
+            try:
+                formatterName = mapping["formatter"]
+                custom_formatter = getattr(formatters, formatterName)
+                oldValue = replacements[placeholder]["value"]
+                formattedValue = custom_formatter(oldValue)
+                replacements[placeholder]["value"] = formattedValue
+            except AttributeError:
+                print(f"Error: Formatter '{formatterName}' not found in formatters module.")
+            except KeyError:
+                print(f"Error: Placeholder '{placeholder}' not found in replacements dictionary.")
+            except Exception as e:
+                print(f"Unexpected error while applying formatter '{formatterName}': {e}")
 
     placeholder_counts = {placeholder: 0 for placeholder in replacements}
     missing_placeholders = set(replacements.keys())
@@ -390,27 +392,6 @@ def log_mappings( config, placeholder_counts,  missing_placeholders, error_messa
         print(f"✅ Tables created {table_placeholder_count}.")
 
 
-def updateGlobalPath():
-    # Determine if running as a PyInstaller bundle
-    if getattr(sys, 'frozen', False):  # Running as an executable
-        BASE_DIR = os.path.dirname(sys.executable)  # Correct path for external files
-        base_path = sys._MEIPASS # base path for internal files
-        sys.path.append(base_path)
-    else:  # Running as a script
-        BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-        base_path = os.path.dirname(os.path.abspath(__file__))
-
-    global CONFIG_DIR
-    global CUSTOM_UTIL_PATH
-    global PRODUCTS_BASE_DIR
-
-    CONFIG_DIR = os.path.join(base_path, "config")
-    CUSTOM_UTIL_PATH = os.path.join(base_path,"customUtil.py")
-
-    # Ensure 'products/' is read from the actual runtime location (not inside the .exe)
-    PRODUCTS_BASE_DIR = os.path.join(BASE_DIR, "products")  # products/ is expected at runtime
-
-
 def shouldExit(forceExit = False):
     choice = input("\nPress ENTER to continue... (or 'q' to quit): ")
     if choice.lower() == 'q':
@@ -426,9 +407,6 @@ def main():
     # Argument Details
     # parser.add_argument("-v", "--verbose", action="store_true", help="Show detailed placeholder changes with line numbers and counts")
     # parser.add_argument("-lp","--loop", action="store_true", help="Keep running after completion, allowing re-selection")
-    
-    # Update path for internal and external bundled files
-    updateGlobalPath()
 
     config_info = list_config_files(CONFIG_DIR)
 
@@ -462,7 +440,7 @@ def main():
 
         try:
             if data and config:
-                replace_placeholders(config, data, error_messages, CUSTOM_UTIL_PATH)
+                replace_placeholders(config, data, error_messages)
         except Exception as e:
             print(f"Got internal error {e} {e.__traceback__}")
 

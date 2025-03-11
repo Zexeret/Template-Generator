@@ -13,6 +13,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 BUILD_DIR = os.path.join(BASE_DIR, "TOOL")
 TS_GEN_DIR = os.path.join(BUILD_DIR, "TS_Generator")
 PRODUCTS_DIR = os.path.join(BASE_DIR, "products")
+CONFIG_DIR = os.path.join(BASE_DIR, "config")
 DIST_DIR = os.path.join(BASE_DIR, "dist")
 EXE_NAME = "ts-generator.exe"
 
@@ -26,13 +27,13 @@ os.makedirs(TS_GEN_DIR, exist_ok=True)
 
 # Copy the entire products folder to TS_Generator
 shutil.copytree(PRODUCTS_DIR, os.path.join(TS_GEN_DIR, "products"), dirs_exist_ok=True)
+shutil.copytree(CONFIG_DIR, os.path.join(TS_GEN_DIR, "config"), dirs_exist_ok=True)
 
 # Run PyInstaller command
 pyinstaller_cmd = [
     "pyinstaller",
     "--onefile",
-    "--add-data", f"{os.path.join(BASE_DIR, 'config')};config",
-    "--add-data", f"{os.path.join(BASE_DIR, 'customUtil.py')};.",
+    "--add-data", "util;util",
     "--name", "ts-generator",
     os.path.join(BASE_DIR, "ts_script.py"),
 ]
