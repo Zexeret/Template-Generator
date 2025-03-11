@@ -6,7 +6,7 @@
     "expectedCount": 87,
     "shouldIgnore" : true,
     "mappings": {
-        "[[NAME]]": { "inputField": "Name" },
+        "[[NAME]]": { "inputField": "Name", "formatter" : "demoFormatter" },
         "[[AGE]]": { "inputField": "Age" },
         "[[PHONE]]": { "inputField": "Phone" },
         "[[BBG_3_0]]": { "inputField": "BBG 3.0" },
